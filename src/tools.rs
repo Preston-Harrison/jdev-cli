@@ -55,6 +55,7 @@ impl Functions {
         let mut status_options = StatusOptions::new();
         status_options.include_ignored(false);
         status_options.include_untracked(true);
+        status_options.include_unmodified(true);
         let statuses = self.repo.statuses(Some(&mut status_options))?;
         let repo_path = self.repo_path();
 
@@ -129,7 +130,11 @@ impl Functions {
         Ok(())
     }
 
-    pub fn modify_file(&self, path: PathBuf, input: FileModificationInput) -> Result<FileModification> {
+    pub fn modify_file(
+        &self,
+        path: PathBuf,
+        input: FileModificationInput,
+    ) -> Result<FileModification> {
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&path);
 
@@ -146,20 +151,27 @@ impl Functions {
 
         // Depending on the input variant, modify file accordingly
         match input {
-            FileModificationInput::Insert { start_line, content } => {
+            FileModificationInput::Insert {
+                start_line,
+                content,
+            } => {
                 let insert_index = start_line.saturating_sub(1); // Convert 1-indexed to 0-indexed
                 for (i, line_content) in content.split('\n').enumerate() {
                     file_content.insert(insert_index + i, line_content);
                     modifications.push(LineModification {
                         line: insert_index + i + 1, // Convert back to 1-indexed
                         content: line_content.into(),
-                        is_deletion: false
+                        is_deletion: false,
                     })
                 }
-            },
-            FileModificationInput::Replace { start_line, end_line, content } => {
+            }
+            FileModificationInput::Replace {
+                start_line,
+                end_line,
+                content,
+            } => {
                 let replace_start = start_line.saturating_sub(1); // Convert 1-indexed to 0-indexed
-                let replace_end = end_line;
+                let replace_end = end_line.saturating_sub(1);
 
                 // Record deletions
                 for i in replace_start..replace_end {
@@ -167,23 +179,20 @@ impl Functions {
                         modifications.push(LineModification {
                             line: i + 1, // Convert back to 1-indexed
                             content: original_content.to_string(),
-                            is_deletion: true
+                            is_deletion: true,
                         });
                     }
                 }
 
                 // Replace content
-                file_content.splice(
-                    replace_start..replace_end,
-                    content.split('\n')
-                );
+                file_content.splice(replace_start..replace_end, content.split('\n'));
 
                 // Record insertions
                 for (i, line_content) in content.split('\n').enumerate() {
                     modifications.push(LineModification {
                         line: replace_start + i + 1, // Convert back to 1-indexed
                         content: line_content.into(),
-                        is_deletion: false
+                        is_deletion: false,
                     });
                 }
             }
@@ -194,7 +203,201 @@ impl Functions {
 
         Ok(FileModification {
             path,
-            modifications
+            modifications,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    /// Sets up a temporary repository in a temporary directory for testing purposes.
+    fn setup_test_repo() -> Result<(Repository, PathBuf)> {
+        let temp_dir = tempdir().expect("Failed to create a temporary directory");
+        let repo_path = temp_dir.into_path();
+        let repo = Repository::init(&repo_path)?;
+        Ok((repo, repo_path.into()))
+    }
+
+    #[test]
+    fn test_modify_file_insert() {
+        // Arrange
+        let (_repo, repo_path) = setup_test_repo().expect("Should set up the test repo");
+        let functions = Functions::new(repo_path.clone()).expect("Functions::new should work");
+        let file_path = repo_path.join("test.txt");
+        fs::write(&file_path, "Line1\nLine2").expect("Should write to test file");
+
+        // Act
+        let modification = functions
+            .modify_file(
+                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
+                FileModificationInput::Insert {
+                    start_line: 2,
+                    content: "Inserted Line",
+                },
+            )
+            .expect("File modification should succeed");
+
+        // Assert
+        let file_content = fs::read_to_string(file_path).expect("Should read modified file");
+        assert_eq!(
+            file_content, "Line1\nInserted Line\nLine2",
+            "Content should be inserted correctly"
+        );
+    }
+
+    #[test]
+    fn test_modify_file_replace() {
+        // Arrange
+        let (_repo, repo_path) = setup_test_repo().expect("Should set up the test repo");
+        let functions = Functions::new(repo_path.clone()).expect("Functions::new should work");
+        let file_path = repo_path.join("test.txt");
+        fs::write(&file_path, "Line1\nLine2\nLine3").expect("Should write to test file");
+
+        // Act
+        let modification = functions
+            .modify_file(
+                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
+                FileModificationInput::Replace {
+                    start_line: 2,
+                    end_line: 3,
+                    content: "Replaced Line",
+                },
+            )
+            .expect("File modification should succeed");
+
+        // Assert
+        let file_content = fs::read_to_string(file_path).expect("Should read modified file");
+        assert_eq!(
+            file_content, "Line1\nReplaced Line\nLine3",
+            "Content should be replaced correctly"
+        );
+    }
+
+    #[test]
+    fn test_modify_file_edge_cases() {
+        // This test should cover edge cases such as empty files, inserting at beginning/end, and replacing nothing.
+
+        // Arrange
+        let (_repo, repo_path) = setup_test_repo().expect("Should set up the test repo");
+        let functions = Functions::new(repo_path.clone()).expect("Functions::new should work");
+
+        // Edge case: Modifying an empty file
+        let file_path = repo_path.join("empty.txt");
+        fs::write(&file_path, "").expect("Should create an empty test file");
+        assert!(
+            functions
+                .modify_file(
+                    file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
+                    FileModificationInput::Insert {
+                        start_line: 1,
+                        content: "Text in empty file",
+                    }
+                )
+                .is_ok(),
+            "Modifying an empty file should not result in an error"
+        );
+
+        // Edge case: Inserting at the beginning of the file
+        let file_path = repo_path.join("begin.txt");
+        fs::write(&file_path, "Line1\nLine2").expect("Should write to beginning test file");
+        let modification_beginning = functions
+            .modify_file(
+                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
+                FileModificationInput::Insert {
+                    start_line: 1,
+                    content: "Inserted at beginning",
+                },
+            )
+            .expect("File modification at the beginning should succeed");
+        let file_content_beginning =
+            fs::read_to_string(file_path).expect("Should read beginning modified file");
+        assert_eq!(
+            file_content_beginning, "Inserted at beginning\nLine1\nLine2",
+            "Content should be inserted at the beginning correctly"
+        );
+
+        // Edge case: Inserting at the end of the file
+        let file_path = repo_path.join("end.txt");
+        fs::write(&file_path, "Line1\nLine2").expect("Should write to end test file");
+        let modification_end = functions
+            .modify_file(
+                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
+                FileModificationInput::Insert {
+                    start_line: 3,
+                    content: "Appended at end",
+                },
+            )
+            .expect("File modification at the end should succeed");
+        let file_content_end =
+            fs::read_to_string(file_path).expect("Should read end modified file");
+        assert_eq!(
+            file_content_end, "Line1\nLine2\nAppended at end",
+            "Content should be appended at the end correctly"
+        );
+
+        // Edge case: Replacing with nothing
+        let file_path = repo_path.join("replace_nothing.txt");
+        fs::write(&file_path, "Line1\nLine2\nLine3")
+            .expect("Should write to replace nothing test file");
+        let modification_replace_nothing = functions
+            .modify_file(
+                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
+                FileModificationInput::Replace {
+                    start_line: 2,
+                    end_line: 3,
+                    content: "",
+                },
+            )
+            .expect("File modification with replace nothing should succeed");
+        let file_content_replace_nothing =
+            fs::read_to_string(file_path).expect("Should read replace nothing modified file");
+        assert_eq!(
+            file_content_replace_nothing, "Line1\n\nLine3",
+            "Replacing with nothing should result in an empty line"
+        );
+    }
+
+    #[test]
+    fn test_file_creation_and_deletion() {
+        let temp_dir = tempdir().expect("Failed to create a temporary directory");
+        let repo_path = temp_dir.into_path();
+        let _repo = Repository::init(&repo_path).expect("Failed to initialize a repository");
+
+        let functions = Functions::new(repo_path.clone()).expect("Functions::new should work");
+
+        let file_to_create = repo_path.join("temp_file.txt");
+        let file_content = "Temporary file contents";
+
+        // Test file creation
+        assert!(
+            functions
+                .create_file(
+                    file_to_create.strip_prefix(&repo_path).unwrap().into(),
+                    file_content
+                )
+                .is_ok(),
+            "Should be able to create a new file"
+        );
+
+        // Test file existence after creation
+        assert!(file_to_create.exists(), "Newly created file should exist");
+
+        // Test file deletion
+        assert!(
+            functions
+                .delete_file(file_to_create.strip_prefix(&repo_path).unwrap().into())
+                .is_ok(),
+            "Should be able to delete the file"
+        );
+
+        // Test file existence after deletion
+        assert!(
+            !file_to_create.exists(),
+            "File should not exist after deletion"
+        );
     }
 }
