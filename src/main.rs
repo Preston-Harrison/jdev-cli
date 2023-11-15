@@ -1,3 +1,6 @@
+mod tools;
+
 fn main() {
-    println!("Hello, world!");
+    let a = tools::Functions::new("./".into()).unwrap();
+    print!("{:?}", a.get_all_files().unwrap())
 }
