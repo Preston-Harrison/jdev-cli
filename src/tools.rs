@@ -130,7 +130,71 @@ impl Functions {
     }
 
     pub fn modify_file(&self, path: PathBuf, input: FileModificationInput) -> Result<FileModification> {
+        let repo_path = self.repo_path();
+        let file_path = repo_path.join(&path);
 
-        todo!()
+        // Ensure the file exists
+        if !file_path.exists() {
+            return Err(anyhow!("File does not exist"));
+        }
+
+        let file = self.read_file(path.clone())?;
+        let mut file_content = file.lines().collect::<Vec<_>>();
+        let mut modifications = Vec::new();
+
+        let mut file = File::create(&file_path)?;
+
+        // Depending on the input variant, modify file accordingly
+        match input {
+            FileModificationInput::Insert { start_line, content } => {
+                let insert_index = start_line.saturating_sub(1); // Convert 1-indexed to 0-indexed
+                for (i, line_content) in content.split('\n').enumerate() {
+                    file_content.insert(insert_index + i, line_content);
+                    modifications.push(LineModification {
+                        line: insert_index + i + 1, // Convert back to 1-indexed
+                        content: line_content.into(),
+                        is_deletion: false
+                    })
+                }
+            },
+            FileModificationInput::Replace { start_line, end_line, content } => {
+                let replace_start = start_line.saturating_sub(1); // Convert 1-indexed to 0-indexed
+                let replace_end = end_line;
+
+                // Record deletions
+                for i in replace_start..replace_end {
+                    if let Some(original_content) = file_content.get(i) {
+                        modifications.push(LineModification {
+                            line: i + 1, // Convert back to 1-indexed
+                            content: original_content.to_string(),
+                            is_deletion: true
+                        });
+                    }
+                }
+
+                // Replace content
+                file_content.splice(
+                    replace_start..replace_end,
+                    content.split('\n')
+                );
+
+                // Record insertions
+                for (i, line_content) in content.split('\n').enumerate() {
+                    modifications.push(LineModification {
+                        line: replace_start + i + 1, // Convert back to 1-indexed
+                        content: line_content.into(),
+                        is_deletion: false
+                    });
+                }
+            }
+        }
+
+        // Write modified content back to the file
+        write!(file, "{}", file_content.join("\n"))?;
+
+        Ok(FileModification {
+            path,
+            modifications
+        })
     }
 }
