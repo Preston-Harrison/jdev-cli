@@ -1,6 +1,11 @@
+use socket::connect;
+
+mod print;
+mod socket;
 mod tools;
 
-fn main() {
-    let a = tools::Functions::new("./".into()).unwrap();
-    print!("{:?}", a.get_all_files().unwrap())
+#[tokio::main]
+async fn main() {
+    let caller = tools::Functions::new("./".into()).unwrap();
+    connect(caller).await.unwrap()
 }

@@ -1,36 +1,57 @@
 use anyhow::{anyhow, Result};
 use git2::{Repository, StatusOptions};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 pub struct Functions {
     repo: Repository,
 }
 
-pub enum FileModificationInput<'a> {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModifyFileArgs {
+    path: String,
+    modification: FileModification,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum FileModification {
     Insert {
         start_line: usize,
-        content: &'a str,
+        content: String,
     },
     Replace {
         start_line: usize,
         end_line: usize,
-        content: &'a str,
+        content: String,
     },
 }
 
-pub struct FileModification {
-    path: PathBuf,
-    modifications: Vec<LineModification>,
-}
-
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LineModification {
     line: usize,
     content: String,
     /// Modification is either deletion or insertion. A replacement is therefore
     /// considered two line modifications.
     is_deletion: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CreateFileArgs {
+    path: String,
+    content: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DeleteFileArgs {
+    path: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ReadFileArgs {
+    path: String,
 }
 
 impl Functions {
@@ -47,11 +68,15 @@ impl Functions {
         path
     }
 
+    fn get_abs_path(&self, path: &str) -> Result<PathBuf> {
+        Ok(self.repo_path().join(PathBuf::from_str(path)?))
+    }
+
     /// Returns a list of all commited, staged, and untracked files in the repo.
     /// Does not return any ignored files.
     /// Returns files with a `PathBuf` relative to the repo path. For example:
     /// `[".gitignore", "Cargo.toml", "src/main.rs"]`
-    pub fn get_all_files(&self) -> Result<Vec<PathBuf>> {
+    pub fn get_all_files(&self) -> Result<Vec<String>> {
         let mut status_options = StatusOptions::new();
         status_options.include_ignored(false);
         status_options.include_untracked(true);
@@ -67,7 +92,7 @@ impl Functions {
             };
             let path = PathBuf::from(file_path);
             if repo_path.join(&path).exists() {
-                files.push(path);
+                files.push(file_path.to_string());
             }
         }
 
@@ -77,16 +102,16 @@ impl Functions {
     /// Creates a new file and echoes `content` into the file.
     /// `path` is relative to the repo path.
     /// Returns an Err if the file at path already exists.
-    pub fn create_file(&self, path: PathBuf, content: &str) -> Result<()> {
+    pub fn create_file(&self, args: CreateFileArgs) -> Result<()> {
         let repo_path = self.repo_path();
-        let file_path = repo_path.join(&path);
+        let file_path = repo_path.join(&args.path);
 
         if Path::new(&file_path).exists() {
             return Err(anyhow!("File already exists"));
         }
 
         let mut file = File::create(file_path)?;
-        file.write_all(content.as_bytes())?;
+        file.write_all(args.content.as_bytes())?;
 
         Ok(())
     }
@@ -102,9 +127,9 @@ impl Functions {
     /// # Returns
     /// A `Result` containing the file contents as a `String`, or
     /// an error if there is a problem reading the file.
-    pub fn read_file(&self, path: PathBuf) -> Result<String> {
+    pub fn read_file(&self, args: ReadFileArgs) -> Result<String> {
         let repo_path = self.repo_path();
-        let file_path = repo_path.join(&path);
+        let file_path = repo_path.join(&args.path);
         let file_contents = std::fs::read_to_string(file_path)?;
         Ok(file_contents)
     }
@@ -120,9 +145,9 @@ impl Functions {
     /// # Returns
     /// A `Result` which is an Ok(()) if the file was successfully deleted,
     /// or an error if the file doesn't exist or there is a problem deleting the file.
-    pub fn delete_file(&self, path: PathBuf) -> Result<()> {
+    pub fn delete_file(&self, args: DeleteFileArgs) -> Result<()> {
         let repo_path = self.repo_path();
-        let file_path = repo_path.join(&path);
+        let file_path = repo_path.join(&args.path);
         if !file_path.exists() {
             return Err(anyhow!("File does not exist"));
         }
@@ -130,34 +155,32 @@ impl Functions {
         Ok(())
     }
 
-    pub fn modify_file(
-        &self,
-        path: PathBuf,
-        input: FileModificationInput,
-    ) -> Result<FileModification> {
+    pub fn modify_file(&self, args: ModifyFileArgs) -> Result<Vec<LineModification>> {
         let repo_path = self.repo_path();
-        let file_path = repo_path.join(&path);
+        let file_path = repo_path.join(&args.path);
 
         // Ensure the file exists
         if !file_path.exists() {
             return Err(anyhow!("File does not exist"));
         }
 
-        let file = self.read_file(path.clone())?;
-        let mut file_content = file.lines().collect::<Vec<_>>();
+        let file = self.read_file(ReadFileArgs {
+            path: args.path.clone(),
+        })?;
+        let mut file_content = file.lines().map(String::from).collect::<Vec<_>>();
         let mut modifications = Vec::new();
 
         let mut file = File::create(&file_path)?;
 
         // Depending on the input variant, modify file accordingly
-        match input {
-            FileModificationInput::Insert {
+        match args.modification {
+            FileModification::Insert {
                 start_line,
                 content,
             } => {
                 let insert_index = start_line.saturating_sub(1); // Convert 1-indexed to 0-indexed
                 for (i, line_content) in content.split('\n').enumerate() {
-                    file_content.insert(insert_index + i, line_content);
+                    file_content.insert(insert_index + i, line_content.to_string());
                     modifications.push(LineModification {
                         line: insert_index + i + 1, // Convert back to 1-indexed
                         content: line_content.into(),
@@ -165,7 +188,7 @@ impl Functions {
                     })
                 }
             }
-            FileModificationInput::Replace {
+            FileModification::Replace {
                 start_line,
                 end_line,
                 content,
@@ -185,7 +208,10 @@ impl Functions {
                 }
 
                 // Replace content
-                file_content.splice(replace_start..replace_end, content.split('\n'));
+                file_content.splice(
+                    replace_start..replace_end,
+                    content.split('\n').map(String::from),
+                );
 
                 // Record insertions
                 for (i, line_content) in content.split('\n').enumerate() {
@@ -201,10 +227,7 @@ impl Functions {
         // Write modified content back to the file
         write!(file, "{}", file_content.join("\n"))?;
 
-        Ok(FileModification {
-            path,
-            modifications,
-        })
+        Ok(modifications)
     }
 }
 
@@ -232,13 +255,18 @@ mod tests {
 
         // Act
         let modification = functions
-            .modify_file(
-                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
-                FileModificationInput::Insert {
+            .modify_file(ModifyFileArgs {
+                path: file_path
+                    .strip_prefix(&repo_path)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                modification: FileModification::Insert {
                     start_line: 2,
-                    content: "Inserted Line",
+                    content: "Inserted Line".to_string(),
                 },
-            )
+            })
             .expect("File modification should succeed");
 
         // Assert
@@ -259,14 +287,19 @@ mod tests {
 
         // Act
         let modification = functions
-            .modify_file(
-                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
-                FileModificationInput::Replace {
+            .modify_file(ModifyFileArgs {
+                path: file_path
+                    .strip_prefix(&repo_path)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                modification: FileModification::Replace {
                     start_line: 2,
                     end_line: 3,
-                    content: "Replaced Line",
+                    content: "Replaced Line".to_string(),
                 },
-            )
+            })
             .expect("File modification should succeed");
 
         // Assert
@@ -290,13 +323,18 @@ mod tests {
         fs::write(&file_path, "").expect("Should create an empty test file");
         assert!(
             functions
-                .modify_file(
-                    file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
-                    FileModificationInput::Insert {
+                .modify_file(ModifyFileArgs {
+                    path: file_path
+                        .strip_prefix(&repo_path)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                    modification: FileModification::Insert {
                         start_line: 1,
-                        content: "Text in empty file",
+                        content: "Text in empty file".to_string(),
                     }
-                )
+                })
                 .is_ok(),
             "Modifying an empty file should not result in an error"
         );
@@ -305,13 +343,18 @@ mod tests {
         let file_path = repo_path.join("begin.txt");
         fs::write(&file_path, "Line1\nLine2").expect("Should write to beginning test file");
         let modification_beginning = functions
-            .modify_file(
-                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
-                FileModificationInput::Insert {
+            .modify_file(ModifyFileArgs {
+                path: file_path
+                    .strip_prefix(&repo_path)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                modification: FileModification::Insert {
                     start_line: 1,
-                    content: "Inserted at beginning",
+                    content: "Inserted at beginning".to_string(),
                 },
-            )
+            })
             .expect("File modification at the beginning should succeed");
         let file_content_beginning =
             fs::read_to_string(file_path).expect("Should read beginning modified file");
@@ -324,13 +367,18 @@ mod tests {
         let file_path = repo_path.join("end.txt");
         fs::write(&file_path, "Line1\nLine2").expect("Should write to end test file");
         let modification_end = functions
-            .modify_file(
-                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
-                FileModificationInput::Insert {
+            .modify_file(ModifyFileArgs {
+                path: file_path
+                    .strip_prefix(&repo_path)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                modification: FileModification::Insert {
                     start_line: 3,
-                    content: "Appended at end",
+                    content: "Appended at end".to_string(),
                 },
-            )
+            })
             .expect("File modification at the end should succeed");
         let file_content_end =
             fs::read_to_string(file_path).expect("Should read end modified file");
@@ -344,14 +392,19 @@ mod tests {
         fs::write(&file_path, "Line1\nLine2\nLine3")
             .expect("Should write to replace nothing test file");
         let modification_replace_nothing = functions
-            .modify_file(
-                file_path.strip_prefix(&repo_path).unwrap().to_path_buf(),
-                FileModificationInput::Replace {
+            .modify_file(ModifyFileArgs {
+                path: file_path
+                    .strip_prefix(&repo_path)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                modification: FileModification::Replace {
                     start_line: 2,
                     end_line: 3,
-                    content: "",
+                    content: "".to_string(),
                 },
-            )
+            })
             .expect("File modification with replace nothing should succeed");
         let file_content_replace_nothing =
             fs::read_to_string(file_path).expect("Should read replace nothing modified file");
@@ -375,10 +428,15 @@ mod tests {
         // Test file creation
         assert!(
             functions
-                .create_file(
-                    file_to_create.strip_prefix(&repo_path).unwrap().into(),
-                    file_content
-                )
+                .create_file(CreateFileArgs {
+                    content: file_content.to_string(),
+                    path: file_to_create
+                        .strip_prefix(&repo_path)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                })
                 .is_ok(),
             "Should be able to create a new file"
         );
@@ -389,7 +447,14 @@ mod tests {
         // Test file deletion
         assert!(
             functions
-                .delete_file(file_to_create.strip_prefix(&repo_path).unwrap().into())
+                .delete_file(DeleteFileArgs {
+                    path: file_to_create
+                        .strip_prefix(&repo_path)
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                })
                 .is_ok(),
             "Should be able to delete the file"
         );
