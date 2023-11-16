@@ -1,4 +1,7 @@
-use crate::{functions::{CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs}, print::{print_function_execution, FunctionExecution}};
+use crate::{
+    functions::{CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs},
+    print::{print_function_execution, FunctionExecution},
+};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
@@ -71,7 +74,10 @@ pub async fn connect(
                         return Ok(());
                     }
                 };
-                print_function_execution(FunctionExecution { call, result: result.clone() });
+                print_function_execution(FunctionExecution {
+                    call,
+                    result: result.clone(),
+                });
                 let result_str = Message::Text(serde_json::to_string(&result).unwrap());
                 if let Err(err) = write.send(result_str).await {
                     eprintln!("Error sending outgoing message: {}", &err)

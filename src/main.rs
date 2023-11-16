@@ -1,10 +1,10 @@
-use socket::connect;
 use clap::Parser;
 use functions::Functions;
+use socket::connect;
 
+mod functions;
 mod print;
 mod socket;
-mod functions;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -15,7 +15,6 @@ struct Args {
     #[clap(short, long, default_value = "./")]
     directory: String,
 }
-
 
 #[tokio::main]
 async fn main() {
