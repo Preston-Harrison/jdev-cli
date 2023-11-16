@@ -1,8 +1,5 @@
-use crate::{
-    print::print_function_result,
-    tools::{CreateFileArgs, DeleteFileArgs, Functions, LineModification, ModifyFileArgs},
-};
-use futures_util::StreamExt;
+use crate::{functions::{CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs}, print::{print_function_execution, FunctionExecution}};
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
@@ -16,15 +13,15 @@ pub enum FunctionCall {
     PrintMessage { message: String },
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(untagged, rename_all = "snake_case")]
 pub enum FunctionReturnData {
     Null(()),
     GetAllFiles(Vec<String>),
-    ModifyFile(Vec<LineModification>),
+    ModifyFile(String),
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(tag = "status", content = "data", rename_all = "snake_case")]
 pub enum FunctionResult {
     Success(FunctionReturnData),
@@ -39,36 +36,46 @@ macro_rules! call {
     }};
 }
 
-pub async fn connect(caller: Functions) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn connect(
+    functions: Functions,
+    query: String,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Connect to the websocket server
     let (ws_stream, _) = connect_async("ws://localhost:8080")
         .await
         .expect("Failed to connect");
-    let (write, mut read) = ws_stream.split();
+    let (mut write, mut read) = ws_stream.split();
+
+    write.send(Message::Text(query)).await?;
 
     // Read messages from the server
     while let Some(message) = read.next().await {
         match message {
             Ok(Message::Text(text)) => {
-                let function_call = match serde_json::from_str::<FunctionCall>(&text) {
+                let call = match serde_json::from_str::<FunctionCall>(&text) {
                     Ok(v) => v,
                     Err(e) => {
                         eprintln!("{}", e);
                         continue;
                     }
                 };
-                let result = match function_call.clone() {
-                    FunctionCall::GetAllFiles => call!(caller.get_all_files(), GetAllFiles),
-                    FunctionCall::CreateFile(args) => call!(caller.create_file(args), Null),
-                    FunctionCall::DeleteFile(args) => call!(caller.delete_file(args), Null),
-                    FunctionCall::ModifyFile(args) => call!(caller.modify_file(args), ModifyFile),
+                let result = match call.clone() {
+                    FunctionCall::GetAllFiles => call!(functions.get_all_files(), GetAllFiles),
+                    FunctionCall::CreateFile(args) => call!(functions.create_file(args), Null),
+                    FunctionCall::DeleteFile(args) => call!(functions.delete_file(args), Null),
+                    FunctionCall::ModifyFile(args) => {
+                        call!(functions.modify_file(args), ModifyFile)
+                    }
                     FunctionCall::PrintMessage { message } => {
-                        // TODO figure out if the user should be prompted.
                         println!("{}", message);
                         return Ok(());
                     }
                 };
-                print_function_result(&function_call, &result)
+                print_function_execution(FunctionExecution { call, result: result.clone() });
+                let result_str = Message::Text(serde_json::to_string(&result).unwrap());
+                if let Err(err) = write.send(result_str).await {
+                    eprintln!("Error sending outgoing message: {}", &err)
+                }
             }
             Ok(_) => println!("Received non-text message"),
             Err(e) => eprintln!("Error handling incoming message: {}", &e),
