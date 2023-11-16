@@ -102,7 +102,7 @@ impl Functions {
     /// an error if there is a problem reading the file.
     pub fn read_file(&self, args: ReadFileArgs) -> Result<String> {
         let repo_path = self.repo_path();
-        let file_path = repo_path.join(&args.path);
+        let file_path = repo_path.join(args.path);
         let file_contents = std::fs::read_to_string(file_path)?;
         Ok(file_contents)
     }
@@ -120,7 +120,7 @@ impl Functions {
     /// or an error if the file doesn't exist or there is a problem deleting the file.
     pub fn delete_file(&self, args: DeleteFileArgs) -> Result<()> {
         let repo_path = self.repo_path();
-        let file_path = repo_path.join(&args.path);
+        let file_path = repo_path.join(args.path);
         if !file_path.exists() {
             return Err(anyhow!("File does not exist"));
         }
