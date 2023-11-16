@@ -1,5 +1,5 @@
 use crate::{
-    functions::{CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs},
+    functions::{CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ReadFileArgs},
     print::{print_function_execution, FunctionExecution},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -9,8 +9,9 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "function", content = "args", rename_all = "snake_case")]
 pub enum FunctionCall {
-    GetAllFiles,
+    GetAllFiles {},
     CreateFile(CreateFileArgs),
+    ReadFile(ReadFileArgs),
     DeleteFile(DeleteFileArgs),
     ModifyFile(ModifyFileArgs),
     PrintMessage { message: String },
@@ -22,6 +23,7 @@ pub enum FunctionReturnData {
     Null(()),
     GetAllFiles(Vec<String>),
     ModifyFile(String),
+    ReadFile(String),
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -44,7 +46,7 @@ pub async fn connect(
     query: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Connect to the websocket server
-    let (ws_stream, _) = connect_async("ws://localhost:8080")
+    let (ws_stream, _) = connect_async("ws://localhost:5000")
         .await
         .expect("Failed to connect");
     let (mut write, mut read) = ws_stream.split();
@@ -58,12 +60,14 @@ pub async fn connect(
                 let call = match serde_json::from_str::<FunctionCall>(&text) {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("{}", e);
+                        eprintln!("Err: {}", e);
+                        eprintln!("Text: {}", text);
                         continue;
                     }
                 };
                 let result = match call.clone() {
-                    FunctionCall::GetAllFiles => call!(functions.get_all_files(), GetAllFiles),
+                    FunctionCall::GetAllFiles {} => call!(functions.get_all_files(), GetAllFiles),
+                    FunctionCall::ReadFile(args) => call!(functions.read_file(args), ReadFile),
                     FunctionCall::CreateFile(args) => call!(functions.create_file(args), Null),
                     FunctionCall::DeleteFile(args) => call!(functions.delete_file(args), Null),
                     FunctionCall::ModifyFile(args) => {

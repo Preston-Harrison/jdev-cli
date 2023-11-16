@@ -1,5 +1,5 @@
 use crate::{
-    functions::{CreateFileArgs, DeleteFileArgs, ModifyFileArgs},
+    functions::{CreateFileArgs, DeleteFileArgs, ModifyFileArgs, ReadFileArgs},
     socket::{FunctionCall, FunctionResult, FunctionReturnData},
 };
 use colored::Colorize;
@@ -30,7 +30,7 @@ pub fn print_function_execution(exec: FunctionExecution) {
     };
 
     match (exec.call, result) {
-        (Fn::GetAllFiles, Data::GetAllFiles(files)) => {
+        (Fn::GetAllFiles {}, Data::GetAllFiles(files)) => {
             println!(
                 "{}{}{}",
                 "Listing all (".white().bold(),
@@ -51,6 +51,17 @@ pub fn print_function_execution(exec: FunctionExecution) {
             for (i, line) in lines.into_iter().enumerate() {
                 print_line_content(i + 1, line, false);
             }
+        }
+        (Fn::ReadFile(ReadFileArgs { path }), Data::ReadFile(file)) => {
+            let line_count = file.lines().count();
+            println!(
+                "{} {} {}{}{}",
+                "Reading".white().bold(),
+                path.cyan().bold(),
+                "(".white().bold(),
+                line_count.to_string().yellow().bold(),
+                ") lines".white().bold()
+            )
         }
         (Fn::DeleteFile(DeleteFileArgs { path }), _) => {
             println!(
@@ -83,8 +94,10 @@ pub fn print_function_execution(exec: FunctionExecution) {
             println!("{}", "Received message".white().bold());
             println!("{}", message);
         }
-        _ => panic!("what"),
+        v => panic!("unrecognised function pattern {:?}", v),
     }
+
+    println!(); // Just to space things out a little.
 }
 
 fn print_line_content(line_number: usize, content: &str, is_deletion: bool) {
@@ -92,7 +105,7 @@ fn print_line_content(line_number: usize, content: &str, is_deletion: bool) {
         "{} {}. {}",
         if is_deletion { "-" } else { "+" },
         line_number,
-        content,
+        content.trim_end(),
     );
     println!(
         "{}",
