@@ -77,7 +77,7 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 path.cyan().bold()
             );
             let diff = TextDiff::from_lines(&modification.old_contents, &modification.new_contents);
-            for change in diff.iter_all_changes() {
+            for change in diff.iter_all_changes().filter(|c| c.tag() != ChangeTag::Equal) {
                 let is_deletion = change.tag() == ChangeTag::Delete;
                 print_line_content(
                     if is_deletion {
@@ -115,4 +115,30 @@ fn print_line_content(line_number: usize, content: &str, is_deletion: bool) {
             line_mod.green()
         }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::functions::ModifyFileResult;
+
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn test_print_modification() {
+        let fn_exec = FunctionExecution {
+            call: FunctionCall::ModifyFile(ModifyFileArgs {
+                path: "/src/user.js".to_string(),
+                start_line: 2,
+                end_line: Some(2),
+                mode: crate::functions::ModificationMode::Replace,
+                content: "".to_string(),
+            }),
+            result: FunctionResult::Success(FunctionReturnData::ModifyFile(ModifyFileResult {
+                old_contents: "Line 1\nLine 2\nLine 3\n".to_string(),
+                new_contents: "Line 1\nLine 4\nLine 3\n".to_string(),
+            })),
+        };
+        print_function_execution(fn_exec);
+    }
 }

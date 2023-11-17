@@ -12,9 +12,19 @@ pub struct Functions {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModifyFileArgs {
     pub path: String,
-    pub start_line: usize, // Inclusive
-    pub end_line: usize,   // Exclusive
+    // 1-based, inclusive.
+    pub start_line: usize,
+    // 1-based, inclusive, only required if mode == ModificationMode::Replace.
+    pub end_line: Option<usize>,
     pub content: String,
+    pub mode: ModificationMode,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum ModificationMode {
+    Insert,
+    Replace,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -136,8 +146,27 @@ impl Functions {
         Ok(())
     }
 
-    /// Returns the old contents
+    /// Modifies a file by overwriting its content in a specified line range.
+    ///
+    /// `path` is relative to the repo path. The line range defined by
+    /// `start_line` and `end_line` will be replaced with `content`.
+    /// Note that `start_line` is inclusive and `end_line` is exclusive.
+    /// If `end_line` is equal to `start_line`, `content` will be inserted
+    /// at the `start_line` without removing any existing lines.
+    ///
+    /// # Arguments
+    /// * `args` - A `ModifyFileArgs` struct containing:
+    ///    * `path`: The relative path to the file that needs to be modified.
+    ///    * `start_line`: The starting line (1-based) where the modification begins (inclusive).
+    ///    * `end_line`: The ending line (1-based) where the modification ends (inclusive).
+    ///    * `content`: New content to replace from `start_line` to `end_line`.
+    ///
+    /// # Returns
+    /// A `Result` containing a `ModifyFileResult` struct with `old_contents` reflecting the
+    /// original file before modification, and `new_contents` as the updated file contents,
+    /// or an error if there is a problem during file modification.
     pub fn modify_file(&self, args: ModifyFileArgs) -> Result<ModifyFileResult> {
+        dbg!(&args);
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&args.path);
 
@@ -146,23 +175,29 @@ impl Functions {
             return Err(anyhow!("File does not exist"));
         }
 
-        let start_line = args.start_line - 1;
-        let end_line = args.end_line - 1;
-
         let old_contents = self.read_file(ReadFileArgs { path: args.path })?;
         let mut file_lines = old_contents.lines().collect::<Vec<_>>();
         let new_lines = args.content.lines().collect::<Vec<_>>();
-        let new_contents = new_lines.join("\n") + "\n";
-        file_lines.splice(start_line..end_line, new_lines);
 
-        // Wipes old file.
-        let mut file = File::create(&file_path)?;
+        match args.mode {
+            ModificationMode::Insert => {
+                file_lines.splice(args.start_line - 1..args.start_line - 1, new_lines);
+            }
+            ModificationMode::Replace => {
+                let end_line = args
+                    .end_line
+                    .ok_or(anyhow!("end_line must be provided when using replace mode"))?;
+                file_lines.splice(args.start_line - 1..end_line, new_lines);
+            }
+        }
+
+        let mut file = File::create(&file_path)?; // Wipes old file.
+        let new_contents = file_lines.join("\n") + "\n";
         write!(file, "{}", new_contents)?;
-
-        Ok(ModifyFileResult {
+        dbg!(Ok(ModifyFileResult {
             old_contents,
             new_contents,
-        })
+        }))
     }
 }
 
@@ -228,6 +263,65 @@ mod tests {
         assert!(
             !file_to_create.exists(),
             "File should not exist after deletion"
+        );
+    }
+
+    #[test]
+    fn test_successful_content_modification() {
+        let temp_dir = tempdir().expect("Failed to create a temporary directory");
+        let repo_path = temp_dir.into_path();
+        let _repo = Repository::init(&repo_path).expect("Failed to initialize a repository");
+
+        let functions = Functions::new(repo_path.clone()).expect("Functions::new should work");
+
+        let file_path = "test_file.txt";
+        let initial_content = "Line 1\nLine 2\nLine 3";
+        let modified_content = "Modified Line";
+
+        functions
+            .create_file(CreateFileArgs {
+                content: initial_content.to_string(),
+                path: file_path.to_string(),
+            })
+            .expect("Failed to create file");
+
+        let modify_result = functions.modify_file(ModifyFileArgs {
+            path: file_path.to_string(),
+            start_line: 2,
+            end_line: Some(2),
+            mode: ModificationMode::Replace,
+            content: modified_content.to_string(),
+        });
+        assert!(modify_result.is_ok(), "Modify file should succeed");
+
+        let result = modify_result.unwrap();
+        assert_eq!(
+            result.old_contents, initial_content,
+            "Old contents should match initial content"
+        );
+        assert_eq!(
+            result.new_contents, "Line 1\nModified Line\nLine 3\n",
+            "New contents should match expected modified content"
+        );
+
+        // Now check insertions.
+        let modify_result = functions.modify_file(ModifyFileArgs {
+            path: file_path.to_string(),
+            start_line: 4,
+            end_line: None,
+            mode: ModificationMode::Insert,
+            content: "New line aw yeah".to_string(),
+        });
+        assert!(modify_result.is_ok(), "Modify file should succeed");
+
+        let result = modify_result.unwrap();
+        assert_eq!(
+            result.old_contents, "Line 1\nModified Line\nLine 3\n",
+            "Old contents should match initial content"
+        );
+        assert_eq!(
+            result.new_contents, "Line 1\nModified Line\nLine 3\nNew line aw yeah\n",
+            "New contents should match expected modified content"
         );
     }
 }
