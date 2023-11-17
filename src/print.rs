@@ -55,12 +55,12 @@ pub fn print_function_execution(exec: FunctionExecution) {
         (Fn::ReadFile(ReadFileArgs { path }), Data::ReadFile(file)) => {
             let line_count = file.lines().count();
             println!(
-                "{} {} {}{}{}",
+                "{} {} {}{} {}",
                 "Reading".white().bold(),
                 path.cyan().bold(),
                 "(".white().bold(),
                 line_count.to_string().yellow().bold(),
-                ") lines".white().bold()
+                "lines)".white().bold()
             )
         }
         (Fn::DeleteFile(DeleteFileArgs { path }), _) => {
@@ -70,20 +70,20 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 path.cyan().bold()
             );
         }
-        (Fn::ModifyFile(ModifyFileArgs { path, content }), Data::ModifyFile(old_content)) => {
+        (Fn::ModifyFile(ModifyFileArgs { path, .. }), Data::ModifyFile(modification)) => {
             println!(
                 "{} {}",
                 "Modified file at".white().bold(),
                 path.cyan().bold()
             );
-            let diff = TextDiff::from_lines(&old_content, &content);
+            let diff = TextDiff::from_lines(&modification.old_contents, &modification.new_contents);
             for change in diff.iter_all_changes() {
                 let is_deletion = change.tag() == ChangeTag::Delete;
                 print_line_content(
                     if is_deletion {
-                        change.old_index().unwrap()
+                        change.old_index().unwrap() + 1
                     } else {
-                        change.new_index().unwrap()
+                        change.new_index().unwrap() + 1
                     },
                     change.value(),
                     is_deletion,

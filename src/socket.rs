@@ -1,5 +1,7 @@
 use crate::{
-    functions::{CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ReadFileArgs},
+    functions::{
+        CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ModifyFileResult, ReadFileArgs,
+    },
     print::{print_function_execution, FunctionExecution},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -22,7 +24,7 @@ pub enum FunctionCall {
 pub enum FunctionReturnData {
     Null(()),
     GetAllFiles(Vec<String>),
-    ModifyFile(String),
+    ModifyFile(ModifyFileResult),
     ReadFile(String),
 }
 

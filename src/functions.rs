@@ -12,7 +12,15 @@ pub struct Functions {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModifyFileArgs {
     pub path: String,
+    pub start_line: usize, // Inclusive
+    pub end_line: usize,   // Exclusive
     pub content: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModifyFileResult {
+    pub old_contents: String,
+    pub new_contents: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -129,7 +137,7 @@ impl Functions {
     }
 
     /// Returns the old contents
-    pub fn modify_file(&self, args: ModifyFileArgs) -> Result<String> {
+    pub fn modify_file(&self, args: ModifyFileArgs) -> Result<ModifyFileResult> {
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&args.path);
 
@@ -138,12 +146,23 @@ impl Functions {
             return Err(anyhow!("File does not exist"));
         }
 
+        let start_line = args.start_line - 1;
+        let end_line = args.end_line - 1;
+
         let old_contents = self.read_file(ReadFileArgs { path: args.path })?;
+        let mut file_lines = old_contents.lines().collect::<Vec<_>>();
+        let new_lines = args.content.lines().collect::<Vec<_>>();
+        let new_contents = new_lines.join("\n") + "\n";
+        file_lines.splice(start_line..end_line, new_lines);
+
         // Wipes old file.
         let mut file = File::create(&file_path)?;
-        write!(file, "{}", args.content)?;
+        write!(file, "{}", new_contents)?;
 
-        Ok(old_contents)
+        Ok(ModifyFileResult {
+            old_contents,
+            new_contents,
+        })
     }
 }
 
