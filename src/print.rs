@@ -1,5 +1,5 @@
 use crate::{
-    functions::{WriteFileArgs, DeleteFileArgs, ModifyFileArgs, ReadFileArgs},
+    functions::{WriteFileArgs, DeleteFileArgs, ReadFileArgs},
     socket::{FunctionCall, FunctionResult, FunctionReturnData},
 };
 use colored::Colorize;
@@ -76,14 +76,6 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 "to".white().bold(),
                 args.destination_path.cyan().bold()
             );
-        }
-        (Fn::ModifyFile(ModifyFileArgs { path, .. }), Data::ModifyFile(modification)) => {
-            println!(
-                "{} {}",
-                "Modified file at".white().bold(),
-                path.cyan().bold()
-            );
-            print_diff(&modification.old_contents, &modification.new_contents);
         }
         (Fn::PrintMessage { message }, _) => {
             println!("{}", "Received message".white().bold());
