@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use git2::{Repository, StatusOptions};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -42,6 +42,12 @@ pub struct CreateFileArgs {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeleteFileArgs {
     pub path: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MoveFileArgs {
+    pub source_path: String,
+    pub destination_path: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -96,6 +102,10 @@ impl Functions {
     pub fn create_file(&self, args: CreateFileArgs) -> Result<()> {
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&args.path);
+
+        if let Some(dir_path) = file_path.parent() {
+            fs::create_dir_all(dir_path)?;
+        }
 
         if Path::new(&file_path).exists() {
             return Err(anyhow!("File already exists"));
@@ -166,7 +176,6 @@ impl Functions {
     /// original file before modification, and `new_contents` as the updated file contents,
     /// or an error if there is a problem during file modification.
     pub fn modify_file(&self, args: ModifyFileArgs) -> Result<ModifyFileResult> {
-        dbg!(&args);
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&args.path);
 
@@ -194,10 +203,44 @@ impl Functions {
         let mut file = File::create(&file_path)?; // Wipes old file.
         let new_contents = file_lines.join("\n") + "\n";
         write!(file, "{}", new_contents)?;
-        dbg!(Ok(ModifyFileResult {
+        Ok(ModifyFileResult {
             old_contents,
             new_contents,
-        }))
+        })
+    }
+
+    /// Moves a file from one path to another within the repository.
+    ///
+    /// The `source_path` and `destination_path` are both relative to the
+    /// repository's root directory. Both paths must be within the repository.
+    ///
+    /// # Arguments
+    /// * `args` - A `MoveFileArgs` struct containing:
+    ///   * `source_path`: The relative path to the existing file that will be moved.
+    ///   * `destination_path`: The new relative path for the file after moving.
+    ///
+    /// # Returns
+    /// A `Result` containing `()`, or an error if the file cannot be moved.
+    pub fn move_file(&self, args: MoveFileArgs) -> Result<()> {
+        let repo_path = self.repo_path();
+        let source_file_path = repo_path.join(&args.source_path);
+        let destination_file_path = repo_path.join(&args.destination_path);
+
+        // Ensure the source file exists
+        if !source_file_path.exists() {
+            return Err(anyhow!("Source file does not exist"));
+        }
+
+        // Ensure the destination doesn't already exist
+        if destination_file_path.exists() {
+            return Err(anyhow!("Destination file already exists"));
+        }
+
+        if let Some(dir_path) = destination_file_path.parent() {
+            fs::create_dir_all(dir_path)?;
+        }
+        fs::rename(source_file_path, destination_file_path)?;
+        Ok(())
     }
 }
 

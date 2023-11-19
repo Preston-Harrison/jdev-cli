@@ -70,6 +70,15 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 path.cyan().bold()
             );
         }
+        (Fn::MoveFile(args), _) => {
+            println!(
+                "{} {} {} {}",
+                "Moved".white().bold(),
+                args.source_path.cyan().bold(),
+                "to".white().bold(),
+                args.destination_path.cyan().bold()
+            );
+        }
         (Fn::ModifyFile(ModifyFileArgs { path, .. }), Data::ModifyFile(modification)) => {
             println!(
                 "{} {}",
@@ -77,7 +86,10 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 path.cyan().bold()
             );
             let diff = TextDiff::from_lines(&modification.old_contents, &modification.new_contents);
-            for change in diff.iter_all_changes().filter(|c| c.tag() != ChangeTag::Equal) {
+            for change in diff
+                .iter_all_changes()
+                .filter(|c| c.tag() != ChangeTag::Equal)
+            {
                 let is_deletion = change.tag() == ChangeTag::Delete;
                 print_line_content(
                     if is_deletion {

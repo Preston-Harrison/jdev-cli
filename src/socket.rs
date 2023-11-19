@@ -1,6 +1,7 @@
 use crate::{
     functions::{
-        CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ModifyFileResult, ReadFileArgs,
+        CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ModifyFileResult, MoveFileArgs,
+        ReadFileArgs,
     },
     print::{print_function_execution, FunctionExecution},
 };
@@ -16,6 +17,7 @@ pub enum FunctionCall {
     ReadFile(ReadFileArgs),
     DeleteFile(DeleteFileArgs),
     ModifyFile(ModifyFileArgs),
+    MoveFile(MoveFileArgs),
     PrintMessage { message: String },
 }
 
@@ -75,6 +77,7 @@ pub async fn connect(
                     FunctionCall::ModifyFile(args) => {
                         call!(functions.modify_file(args), ModifyFile)
                     }
+                    FunctionCall::MoveFile(args) => call!(functions.move_file(args), Null),
                     FunctionCall::PrintMessage { message } => {
                         println!("{}", message);
                         return Ok(());

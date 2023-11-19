@@ -12,7 +12,7 @@ struct Args {
     #[clap(short, long)]
     query: String,
 
-    #[clap(short, long, default_value = "./")]
+    #[clap(long, default_value = "./")]
     directory: String,
 }
 
