@@ -1,6 +1,6 @@
 use crate::{
     functions::{
-        CreateFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ModifyFileResult, MoveFileArgs,
+        WriteFileArgs, DeleteFileArgs, Functions, ModifyFileArgs, ModifyFileResult, MoveFileArgs,
         ReadFileArgs,
     },
     print::{print_function_execution, FunctionExecution},
@@ -13,7 +13,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 #[serde(tag = "function", content = "args", rename_all = "snake_case")]
 pub enum FunctionCall {
     GetAllFiles {},
-    CreateFile(CreateFileArgs),
+    WriteFile(WriteFileArgs),
     ReadFile(ReadFileArgs),
     DeleteFile(DeleteFileArgs),
     ModifyFile(ModifyFileArgs),
@@ -26,8 +26,9 @@ pub enum FunctionCall {
 pub enum FunctionReturnData {
     Null(()),
     GetAllFiles(Vec<String>),
+    WriteFile(Option<String>),
     ModifyFile(ModifyFileResult),
-    ReadFile(String),
+    ReadFile(Option<String>),
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -72,7 +73,7 @@ pub async fn connect(
                 let result = match call.clone() {
                     FunctionCall::GetAllFiles {} => call!(functions.get_all_files(), GetAllFiles),
                     FunctionCall::ReadFile(args) => call!(functions.read_file(args), ReadFile),
-                    FunctionCall::CreateFile(args) => call!(functions.create_file(args), Null),
+                    FunctionCall::WriteFile(args) => call!(functions.write_file(args), WriteFile),
                     FunctionCall::DeleteFile(args) => call!(functions.delete_file(args), Null),
                     FunctionCall::ModifyFile(args) => {
                         call!(functions.modify_file(args), ModifyFile)

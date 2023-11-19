@@ -1,5 +1,5 @@
 use crate::{
-    functions::{CreateFileArgs, DeleteFileArgs, ModifyFileArgs, ReadFileArgs},
+    functions::{WriteFileArgs, DeleteFileArgs, ModifyFileArgs, ReadFileArgs},
     socket::{FunctionCall, FunctionResult, FunctionReturnData},
 };
 use colored::Colorize;
@@ -38,7 +38,7 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 ") files in repository.".white().bold()
             );
         }
-        (Fn::CreateFile(CreateFileArgs { path, content }), _) => {
+        (Fn::WriteFile(WriteFileArgs { path, content }), Data::WriteFile(old_content)) => {
             let lines = content.lines().collect::<Vec<_>>();
             println!(
                 "{} {} {} {} {}",
@@ -48,12 +48,10 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 lines.len().to_string().yellow().bold(),
                 "lines".white().bold()
             );
-            for (i, line) in lines.into_iter().enumerate() {
-                print_line_content(i + 1, line, false);
-            }
+            print_diff(&old_content.unwrap_or("".to_string()), &content);
         }
         (Fn::ReadFile(ReadFileArgs { path }), Data::ReadFile(file)) => {
-            let line_count = file.lines().count();
+            let line_count = file.map(|f| f.lines().count()).unwrap_or(0);
             println!(
                 "{} {} {}{} {}",
                 "Reading".white().bold(),
@@ -85,22 +83,7 @@ pub fn print_function_execution(exec: FunctionExecution) {
                 "Modified file at".white().bold(),
                 path.cyan().bold()
             );
-            let diff = TextDiff::from_lines(&modification.old_contents, &modification.new_contents);
-            for change in diff
-                .iter_all_changes()
-                .filter(|c| c.tag() != ChangeTag::Equal)
-            {
-                let is_deletion = change.tag() == ChangeTag::Delete;
-                print_line_content(
-                    if is_deletion {
-                        change.old_index().unwrap() + 1
-                    } else {
-                        change.new_index().unwrap() + 1
-                    },
-                    change.value(),
-                    is_deletion,
-                )
-            }
+            print_diff(&modification.old_contents, &modification.new_contents);
         }
         (Fn::PrintMessage { message }, _) => {
             println!("{}", "Received message".white().bold());
@@ -110,6 +93,25 @@ pub fn print_function_execution(exec: FunctionExecution) {
     }
 
     println!(); // Just to space things out a little.
+}
+
+fn print_diff(old: &str, new: &str) {
+    let diff = TextDiff::from_lines(old, new);
+    for change in diff
+        .iter_all_changes()
+        .filter(|c| c.tag() != ChangeTag::Equal)
+    {
+        let is_deletion = change.tag() == ChangeTag::Delete;
+        print_line_content(
+            if is_deletion {
+                change.old_index().unwrap() + 1
+            } else {
+                change.new_index().unwrap() + 1
+            },
+            change.value(),
+            is_deletion,
+        )
+    }
 }
 
 fn print_line_content(line_number: usize, content: &str, is_deletion: bool) {

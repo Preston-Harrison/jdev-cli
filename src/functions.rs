@@ -3,7 +3,7 @@ use git2::{Repository, StatusOptions};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct Functions {
     repo: Repository,
@@ -34,7 +34,7 @@ pub struct ModifyFileResult {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CreateFileArgs {
+pub struct WriteFileArgs {
     pub path: String,
     pub content: String,
 }
@@ -98,8 +98,8 @@ impl Functions {
 
     /// Creates a new file and echoes `content` into the file.
     /// `path` is relative to the repo path.
-    /// Returns an Err if the file at path already exists.
-    pub fn create_file(&self, args: CreateFileArgs) -> Result<()> {
+    /// Returns the old file.
+    pub fn write_file(&self, args: WriteFileArgs) -> Result<Option<String>> {
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&args.path);
 
@@ -107,14 +107,11 @@ impl Functions {
             fs::create_dir_all(dir_path)?;
         }
 
-        if Path::new(&file_path).exists() {
-            return Err(anyhow!("File already exists"));
-        }
-
+        let old_file = self.read_file(ReadFileArgs { path: args.path })?;
         let mut file = File::create(file_path)?;
         file.write_all(args.content.as_bytes())?;
 
-        Ok(())
+        Ok(old_file)
     }
 
     /// Reads the contents of a file from the repository.
@@ -128,11 +125,14 @@ impl Functions {
     /// # Returns
     /// A `Result` containing the file contents as a `String`, or
     /// an error if there is a problem reading the file.
-    pub fn read_file(&self, args: ReadFileArgs) -> Result<String> {
+    pub fn read_file(&self, args: ReadFileArgs) -> Result<Option<String>> {
         let repo_path = self.repo_path();
         let file_path = repo_path.join(args.path);
+        if !file_path.exists() {
+            return Ok(None);
+        }
         let file_contents = std::fs::read_to_string(file_path)?;
-        Ok(file_contents)
+        Ok(Some(file_contents))
     }
 
     /// Deletes a file in the repository.
@@ -175,6 +175,7 @@ impl Functions {
     /// A `Result` containing a `ModifyFileResult` struct with `old_contents` reflecting the
     /// original file before modification, and `new_contents` as the updated file contents,
     /// or an error if there is a problem during file modification.
+    #[deprecated]
     pub fn modify_file(&self, args: ModifyFileArgs) -> Result<ModifyFileResult> {
         let repo_path = self.repo_path();
         let file_path = repo_path.join(&args.path);
@@ -184,7 +185,7 @@ impl Functions {
             return Err(anyhow!("File does not exist"));
         }
 
-        let old_contents = self.read_file(ReadFileArgs { path: args.path })?;
+        let old_contents = self.read_file(ReadFileArgs { path: args.path })?.unwrap();
         let mut file_lines = old_contents.lines().collect::<Vec<_>>();
         let new_lines = args.content.lines().collect::<Vec<_>>();
 
@@ -271,7 +272,7 @@ mod tests {
         // Test file creation
         assert!(
             functions
-                .create_file(CreateFileArgs {
+                .write_file(WriteFileArgs {
                     content: file_content.to_string(),
                     path: file_to_create
                         .strip_prefix(&repo_path)
@@ -322,7 +323,7 @@ mod tests {
         let modified_content = "Modified Line";
 
         functions
-            .create_file(CreateFileArgs {
+            .write_file(WriteFileArgs {
                 content: initial_content.to_string(),
                 path: file_path.to_string(),
             })
