@@ -12,7 +12,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "function", content = "args", rename_all = "snake_case")]
 pub enum FunctionCall {
-    GetAllFiles {},
+    ListFiles {},
     WriteFile(WriteFileArgs),
     ReadFile(ReadFileArgs),
     DeleteFile(DeleteFileArgs),
@@ -24,7 +24,7 @@ pub enum FunctionCall {
 #[serde(untagged, rename_all = "snake_case")]
 pub enum FunctionReturnData {
     Null(()),
-    GetAllFiles(Vec<String>),
+    ListFiles(Vec<String>),
     WriteFile(Option<String>),
     ReadFile(Option<String>),
 }
@@ -69,7 +69,7 @@ pub async fn connect(
                     }
                 };
                 let result = match call.clone() {
-                    FunctionCall::GetAllFiles {} => call!(functions.get_all_files(), GetAllFiles),
+                    FunctionCall::ListFiles {} => call!(functions.list_files(), ListFiles),
                     FunctionCall::ReadFile(args) => call!(functions.read_file(args), ReadFile),
                     FunctionCall::WriteFile(args) => call!(functions.write_file(args), WriteFile),
                     FunctionCall::DeleteFile(args) => call!(functions.delete_file(args), Null),

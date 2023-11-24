@@ -49,7 +49,7 @@ impl Functions {
     /// Does not return any ignored files.
     /// Returns files with a `PathBuf` relative to the repo path. For example:
     /// `[".gitignore", "Cargo.toml", "src/main.rs"]`
-    pub fn get_all_files(&self) -> Result<Vec<String>> {
+    pub fn list_files(&self) -> Result<Vec<String>> {
         let mut status_options = StatusOptions::new();
         status_options.include_ignored(false);
         status_options.include_untracked(true);

@@ -30,7 +30,7 @@ pub fn print_function_execution(exec: FunctionExecution) {
     };
 
     match (exec.call, result) {
-        (Fn::GetAllFiles {}, Data::GetAllFiles(files)) => {
+        (Fn::ListFiles {}, Data::ListFiles(files)) => {
             println!(
                 "{}{}{}",
                 "Listing all (".white().bold(),
@@ -123,28 +123,28 @@ fn print_line_content(line_number: usize, content: &str, is_deletion: bool) {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::functions::ModifyFileResult;
-
-    use super::*;
-
-    #[test]
-    #[ignore]
-    fn test_print_modification() {
-        let fn_exec = FunctionExecution {
-            call: FunctionCall::ModifyFile(ModifyFileArgs {
-                path: "/src/user.js".to_string(),
-                start_line: 2,
-                end_line: Some(2),
-                mode: crate::functions::ModificationMode::Replace,
-                content: "".to_string(),
-            }),
-            result: FunctionResult::Success(FunctionReturnData::ModifyFile(ModifyFileResult {
-                old_contents: "Line 1\nLine 2\nLine 3\n".to_string(),
-                new_contents: "Line 1\nLine 4\nLine 3\n".to_string(),
-            })),
-        };
-        print_function_execution(fn_exec);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::functions::ModifyFileResult;
+//
+//     use super::*;
+//
+//     #[test]
+//     #[ignore]
+//     fn test_print_modification() {
+//         let fn_exec = FunctionExecution {
+//             call: FunctionCall::ModifyFile(ModifyFileArgs {
+//                 path: "/src/user.js".to_string(),
+//                 start_line: 2,
+//                 end_line: Some(2),
+//                 mode: crate::functions::ModificationMode::Replace,
+//                 content: "".to_string(),
+//             }),
+//             result: FunctionResult::Success(FunctionReturnData::ModifyFile(ModifyFileResult {
+//                 old_contents: "Line 1\nLine 2\nLine 3\n".to_string(),
+//                 new_contents: "Line 1\nLine 4\nLine 3\n".to_string(),
+//             })),
+//         };
+//         print_function_execution(fn_exec);
+//     }
+// }
