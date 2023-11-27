@@ -1,5 +1,5 @@
 use crate::{
-    functions::{WriteFileArgs, DeleteFileArgs, ReadFileArgs},
+    functions::{DeleteFileArgs, ReadFileArgs, WriteFileArgs},
     socket::{FunctionCall, FunctionResult, FunctionReturnData},
 };
 use colored::Colorize;
@@ -39,15 +39,12 @@ pub fn print_function_execution(exec: FunctionExecution) {
             );
         }
         (Fn::WriteFile(WriteFileArgs { path, content }), Data::WriteFile(old_content)) => {
-            let lines = content.lines().collect::<Vec<_>>();
-            println!(
-                "{} {} {} {} {}",
-                "Created new file at".white().bold(),
-                path.cyan().bold(),
-                "with".white().bold(),
-                lines.len().to_string().yellow().bold(),
-                "lines".white().bold()
-            );
+            let msg = if old_content.is_none() {
+                "Created new file at"
+            } else {
+                "Modified file at"
+            };
+            println!("{} {}", msg.white().bold(), path.cyan().bold(),);
             print_diff(&old_content.unwrap_or("".to_string()), &content);
         }
         (Fn::ReadFile(ReadFileArgs { path }), Data::ReadFile(file)) => {
